@@ -1,12 +1,12 @@
-import { DEFAULT_REWARDS, dateValue, todayValue, dateString, nextAnniversary, drawCard } from './core.js';
+import { DEFAULT_REWARDS, LOVE_START, dateValue, todayValue, dateString, nextAnniversary, drawCard } from './core.js?v=2';
 const $ = id => document.getElementById(id);
 const KEY = 'chenchen-doudou.v1';
 const uid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-function freshState() { return { start: '', interval: 1, custom: '', wishes: [], rewards: [...DEFAULT_REWARDS], game: { limit: 3, draws: [] } }; }
+function freshState() { return { start: LOVE_START, interval: 1, custom: '', wishes: [], rewards: [...DEFAULT_REWARDS], game: { limit: 3, draws: [] } }; }
 function normalize(data) {
   const s = freshState();
   if (!data || typeof data !== 'object') return s;
-  s.start = dateValue(data.start) !== null ? data.start : '';
+  s.start = LOVE_START;
   s.custom = dateValue(data.custom) !== null ? data.custom : '';
   s.interval = [1,6,12].includes(data.interval) ? data.interval : 1;
   s.wishes = Array.isArray(data.wishes) ? data.wishes.filter(w => w && typeof w.text === 'string' && w.text.trim()).slice(0,200).map(w => ({id: uid(), text: w.text.trim().slice(0,120), done: w.done === true})) : [];
@@ -27,7 +27,9 @@ function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catc
 function formatDate(time) { const d = new Date(time); return `${d.getUTCFullYear()} 年 ${d.getUTCMonth()+1} 月 ${d.getUTCDate()} 日`; }
 function setNumber(element, number, unit = '天') { element.replaceChildren(document.createTextNode(`${number} `)); const small = document.createElement('small'); small.textContent = unit; element.append(small); }
 function renderTime() {
-  const start = dateValue(state.start), today = todayValue();
+  const start = dateValue(LOVE_START), today = todayValue();
+  if ($('home-days')) $('home-days').textContent = Math.max(0,Math.round((today-start)/86400000));
+  if (!$('love-days')) return;
   if (start === null) {
     setNumber($('love-days'), '—'); setNumber($('countdown'), '—');
     $('love-days').previousElementSibling.textContent = '我们已经一起走过';
@@ -48,6 +50,7 @@ function renderTime() {
   $('anniversary-date').textContent = `${formatDate(target)}${remaining === 0 ? ' · 今天值得庆祝！' : ''}`;
 }
 function renderWishes() {
+  if (!$('wish-list')) return;
   $('wish-list').replaceChildren();
   if (!state.wishes.length) { const empty = document.createElement('li'); empty.className = 'empty-wishes'; empty.textContent = '第一份愿望，留给你们一起写。♡'; $('wish-list').append(empty); }
   for (const wish of state.wishes) {
@@ -63,6 +66,7 @@ function renderWishes() {
   $('wish-progress').textContent = `${state.wishes.filter(w => w.done).length} / ${state.wishes.length} 已完成`;
 }
 function renderGame() {
+  if (!$('card-grid')) return;
   const {game} = state; const remaining = game.limit-game.draws.length;
   setNumber($('chance-count'), remaining, `/ ${game.limit}`);
   $('card-grid').replaceChildren();
@@ -74,10 +78,13 @@ function renderGame() {
     const title = document.createElement('span'); title.className = 'card-title'; title.textContent = draw ? draw.reward : '一份心动';
     const serial = document.createElement('span'); serial.className = 'card-serial'; serial.textContent = draw ? 'YOUR LITTLE GIFT' : `CUPID / 0${index+1}`;
     card.append(icon,title,serial);
-    card.addEventListener('click', () => {
+    card.addEventListener('click', event => {
       const result = drawCard(state.game,index,state.rewards);
       if (!result) return;
       save(); renderGame(); $('reward-result').textContent = result.reward; $('reward-dialog').showModal();
+      if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        for (let n=0;n<12;n++) { const heart=document.createElement('span'); heart.className='heart-particle'; heart.textContent=n%3?'♥':'✦'; heart.style.setProperty('--dx',`${(Math.random()-.5)*320}px`); heart.style.setProperty('--dy',`${-80-Math.random()*170}px`); heart.style.left=`${event.clientX || innerWidth/2}px`; heart.style.top=`${event.clientY || innerHeight/2}px`; document.body.append(heart); setTimeout(()=>heart.remove(),1100); }
+      }
     });
     $('card-grid').append(card);
   }
@@ -85,20 +92,20 @@ function renderGame() {
   $('reward-history').replaceChildren();
   for (const [i, draw] of game.draws.entries()) { const item = document.createElement('span'); item.textContent = `${i+1}. ${draw.reward}`; $('reward-history').append(item); }
 }
-$('open-settings').addEventListener('click', () => { $('start-date').value = state.start; $('anniversary-type').value = state.interval; $('custom-date').value = state.custom; $('settings-dialog').showModal(); });
-$('settings-form').addEventListener('submit', event => {
+$('open-settings')?.addEventListener('click', () => { $('anniversary-type').value = state.interval; $('custom-date').value = state.custom; $('settings-dialog').showModal(); });
+$('settings-form')?.addEventListener('submit', event => {
   event.preventDefault();
-  if (dateValue($('start-date').value) === null || ($('custom-date').value && dateValue($('custom-date').value) === null)) { toast('请填写有效日期（1900～9998 年）。'); return; }
-  state.start = $('start-date').value; state.interval = Number($('anniversary-type').value); state.custom = $('custom-date').value;
+  if ($('custom-date').value && dateValue($('custom-date').value) === null) { toast('请填写有效日期（1900～9998 年）。'); return; }
+  state.start = LOVE_START; state.interval = Number($('anniversary-type').value); state.custom = $('custom-date').value;
   save(); renderTime(); $('settings-dialog').close(); toast('我们的日期已保存。');
 });
-$('wish-form').addEventListener('submit', event => {event.preventDefault(); const text = $('wish-input').value.trim(); if (!text) return; if(state.wishes.length >= 200) {toast('清单最多保存 200 个愿望。'); return;} state.wishes.push({id:uid(),text,done:false}); save(); renderWishes(); $('wish-input').value = '';});
-$('export-wishes').addEventListener('click', () => {
+$('wish-form')?.addEventListener('submit', event => {event.preventDefault(); const text = $('wish-input').value.trim(); if (!text) return; if(state.wishes.length >= 200) {toast('清单最多保存 200 个愿望。'); return;} state.wishes.push({id:uid(),text,done:false}); save(); renderWishes(); $('wish-input').value = '';});
+$('export-wishes')?.addEventListener('click', () => {
   const blob = new Blob([JSON.stringify({version:1,wishes:state.wishes},null,2)],{type:'application/json'});
   const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = '晨晨和豆豆的愿望清单.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url),1000);
 });
-$('import-wishes').addEventListener('click', () => $('import-file').click());
-$('import-file').addEventListener('change', async event => {
+$('import-wishes')?.addEventListener('click', () => $('import-file').click());
+$('import-file')?.addEventListener('change', async event => {
   const file = event.target.files[0]; if (!file) return;
   try {
     if (file.size > 1024*1024) throw new Error();
@@ -109,15 +116,51 @@ $('import-file').addEventListener('change', async event => {
   } catch { toast('导入失败，请选择本网页导出的有效清单文件（最多 1 MB）。'); }
   finally { event.target.value = ''; }
 });
-$('open-game-settings').addEventListener('click', () => { $('max-chances').value = state.game.limit; $('reward-pool').value = state.rewards.join('\n'); $('game-settings-dialog').showModal(); });
-$('game-settings-form').addEventListener('submit', event => {
+$('open-game-settings')?.addEventListener('click', () => { $('max-chances').value = state.game.limit; $('reward-pool').value = state.rewards.join('\n'); $('game-settings-dialog').showModal(); });
+$('game-settings-form')?.addEventListener('submit', event => {
   event.preventDefault(); const limit = Number($('max-chances').value); const rewards = $('reward-pool').value.split('\n').map(s => s.trim()).filter(Boolean);
   if (!Number.isInteger(limit) || limit < 1 || limit > 9 || !rewards.length || rewards.length > 50 || rewards.some(r => r.length > 120)) { toast('请设置 1～9 次机会、1～50 个奖励，每个奖励不超过 120 字。'); return; }
   state.rewards = rewards; state.game = {limit,draws:[]}; save(); renderGame(); $('game-settings-dialog').close(); toast('新的惊喜已准备好。');
 });
-$('restart-game').addEventListener('click', () => { if (state.game.draws.length && !confirm('开始新一轮？本轮奖励记录将清空。')) return; state.game.draws = []; save(); renderGame(); });
+$('restart-game')?.addEventListener('click', () => { if (state.game.draws.length && !confirm('开始新一轮？本轮奖励记录将清空。')) return; state.game.draws = []; save(); renderGame(); });
 document.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => button.closest('dialog').close()));
 document.querySelectorAll('dialog').forEach(dialog => dialog.addEventListener('click', event => { if (event.target === dialog) { const rect = dialog.getBoundingClientRect(); if(event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); } }));
 window.addEventListener('storage', event => { if (event.key !== KEY) return; try {state = normalize(JSON.parse(event.newValue)); renderTime(); renderWishes(); renderGame();} catch {} });
 renderTime(); renderWishes(); renderGame();
 setInterval(renderTime,30000);
+document.querySelectorAll('[data-wish]').forEach(button=>button.addEventListener('click',()=>{ $('wish-input').value=button.dataset.wish; $('wish-input').focus(); }));
+if ($('calendar-grid')) {
+  const current = new Date(todayValue());
+  let month = new Date(Date.UTC(current.getUTCFullYear(),current.getUTCMonth(),1));
+  let flipping = false;
+  function renderCalendar() {
+    const year=month.getUTCFullYear(), m=month.getUTCMonth();
+    $('calendar-year').textContent=year;
+    $('calendar-month').textContent=`${m+1} 月`;
+    $('calendar-grid').replaceChildren();
+    const first=(month.getUTCDay()+6)%7, count=new Date(Date.UTC(year,m+1,0)).getUTCDate();
+    for(let i=0;i<42;i++) {
+      const time=Date.UTC(year,m,i-first+1), date=new Date(time), day=date.getUTCDate();
+      const cell=document.createElement('span'); cell.className='calendar-day'; cell.textContent=day;
+      const outside=i<first || i>=first+count;
+      if(outside)cell.classList.add('outside');
+      if(time===todayValue())cell.classList.add('today');
+      if(!outside && day===15 && time>=dateValue(LOVE_START))cell.classList.add('love-day');
+      cell.setAttribute('aria-label',`${formatDate(time)}${time===todayValue()?'，今天':''}${cell.classList.contains('love-day')?'，我们的纪念日':''}`);
+      $('calendar-grid').append(cell);
+    }
+  }
+  function turn(direction, reset=false) {
+    if(flipping)return;
+    const next=reset?new Date(Date.UTC(current.getUTCFullYear(),current.getUTCMonth(),1)):new Date(Date.UTC(month.getUTCFullYear(),month.getUTCMonth()+direction,1));
+    if(next.getUTCFullYear()<1900 || next.getUTCFullYear()>9998)return;
+    month=next;
+    if(matchMedia('(prefers-reduced-motion: reduce)').matches){renderCalendar();return;}
+    flipping=true; const sheet=$('calendar-sheet'); sheet.classList.add('turning');
+    setTimeout(()=>{renderCalendar();sheet.classList.remove('turning');sheet.classList.add('arriving');setTimeout(()=>{sheet.classList.remove('arriving');flipping=false;},230);},170);
+  }
+  $('calendar-prev').addEventListener('click',()=>turn(-1));
+  $('calendar-next').addEventListener('click',()=>turn(1));
+  $('calendar-today').addEventListener('click',()=>turn(0,true));
+  renderCalendar();
+}

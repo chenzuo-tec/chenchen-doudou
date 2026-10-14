@@ -1,4 +1,5 @@
 export const DEFAULT_REWARDS = ['一个大大的拥抱（示例）', '一起散步半小时（示例）', '对方夸夸你一分钟（示例）', '一起选一部电影（示例）', '下一次约会由你决定（示例）', '收到一封手写小情书（示例）'];
+export const LOVE_START = '2026-03-15';
 export function dateValue(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return null;
   const [y, m, d] = value.split('-').map(Number);
@@ -7,7 +8,11 @@ export function dateValue(value) {
   const result = new Date(time);
   return result.getUTCFullYear() === y && result.getUTCMonth() === m - 1 && result.getUTCDate() === d ? time : null;
 }
-export function todayValue(now = new Date()) { return Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()); }
+export function todayValue(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);
+  const fields = Object.fromEntries(parts.map(p => [p.type,p.value]));
+  return Date.UTC(Number(fields.year),Number(fields.month)-1,Number(fields.day));
+}
 export function dateString(time) { return new Date(time).toISOString().slice(0, 10); }
 export function addMonths(start, months) {
   const source = new Date(start);

@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {dateValue, addMonths, nextAnniversary, drawCard} from '../core.js';
+import {LOVE_START, todayValue, dateValue, addMonths, nextAnniversary, drawCard} from '../core.js';
+test('fixed love date and calendar use Shanghai day boundary', () => {
+  assert.equal(LOVE_START,'2026-03-15');
+  assert.equal(todayValue(new Date('2026-10-14T16:01:00Z')), dateValue('2026-10-15'));
+});
 test('calendar validates dates and clamps month-end anniversaries', () => {
   assert.equal(dateValue('2025-02-29'), null);
   assert.equal(dateValue('2024-02-29'), Date.UTC(2024, 1, 29));
