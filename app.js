@@ -120,6 +120,7 @@ function renderGame() {
   document.querySelector('.empty-gifts')?.classList.toggle('hidden',game.draws.length>0);
   queueMicrotask(fitBook);
 }
+function mountPage(){
 $('open-settings')?.addEventListener('click', () => { $('anniversary-type').value = state.interval; $('custom-date').value = state.custom; $('settings-dialog').showModal(); });
 $('settings-form')?.addEventListener('submit', event => {
   event.preventDefault();
@@ -147,15 +148,15 @@ $('import-file')?.addEventListener('change', async event => {
 $('restart-game')?.addEventListener('click', () => { if (state.game.draws.length && !confirm('开始新一轮？本轮奖励记录将清空。')) return; state.game.draws = []; save(); renderGame(); });
 document.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => button.closest('dialog').close()));
 document.querySelectorAll('dialog').forEach(dialog => dialog.addEventListener('click', event => { if (event.target === dialog) { const rect = dialog.getBoundingClientRect(); if(event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close(); } }));
-window.addEventListener('storage', event => { if (event.key !== KEY) return; try {state = normalize(JSON.parse(event.newValue)); renderTime(); renderWishes(); renderGame();} catch {} });
 renderTime(); renderWishes(); renderGame();
-setInterval(renderTime,30000);
 document.querySelectorAll('[data-wish]').forEach(button=>button.addEventListener('click',()=>{ $('wish-input').value=button.dataset.wish; $('wish-input').focus(); }));
 if ($('calendar-grid')) {
+  const calendarElement=$('calendar-grid');
   const current = new Date(todayValue());
   let month = new Date(Date.UTC(current.getUTCFullYear(),current.getUTCMonth(),1));
   let flipping = false;
   function renderCalendar() {
+    if(!calendarElement.isConnected)return;
     const year=month.getUTCFullYear(), m=month.getUTCMonth();
     $('calendar-year').textContent=year;
     $('calendar-month').textContent=`${m+1} 月`;
@@ -179,31 +180,54 @@ if ($('calendar-grid')) {
     month=next;
     if(matchMedia('(prefers-reduced-motion: reduce)').matches){renderCalendar();return;}
     flipping=true; const sheet=$('calendar-sheet'); sheet.classList.add('turning');
-    setTimeout(()=>{renderCalendar();sheet.classList.remove('turning');sheet.classList.add('arriving');setTimeout(()=>{sheet.classList.remove('arriving');flipping=false;},230);},170);
+    setTimeout(()=>{if(!calendarElement.isConnected)return;renderCalendar();sheet.classList.remove('turning');sheet.classList.add('arriving');setTimeout(()=>{sheet.classList.remove('arriving');flipping=false;},230);},170);
   }
   $('calendar-prev').addEventListener('click',()=>turn(-1));
   $('calendar-next').addEventListener('click',()=>turn(1));
   $('calendar-today').addEventListener('click',()=>turn(0,true));
   renderCalendar();
 }
+}
+mountPage();
+window.addEventListener('storage', event => { if (event.key !== KEY) return; try {state = normalize(JSON.parse(event.newValue)); renderTime(); renderWishes(); renderGame();} catch {} });
+setInterval(renderTime,30000);
 const bookPages=['index.html','anniversaries.html','wishes.html','cupid.html'];
 let pageTurning=false;
+const chapterCache=new Map();
+function getChapter(url){
+  const key=url.href;
+  if(!chapterCache.has(key))chapterCache.set(key,fetch(key,{signal:AbortSignal.timeout(8000)}).then(response=>{if(!response.ok)throw new Error('Chapter unavailable');return response.text();}).catch(error=>{chapterCache.delete(key);throw error;}));
+  return chapterCache.get(key);
+}
+function commitChapter(doc,target,push){
+  const file=target.pathname.split('/').pop(),spread=$('book-spread');
+  const next=doc.getElementById('book-spread');if(!next)throw new Error('Chapter unavailable');
+  document.querySelectorAll('dialog').forEach(dialog=>dialog.remove());
+  doc.querySelectorAll('dialog').forEach(dialog=>document.body.append(document.importNode(dialog,true)));
+  spread.innerHTML=next.innerHTML;spread.inert=false;spread.removeAttribute('aria-busy');spread.classList.remove('book-turn-next','book-turn-back');
+  document.body.dataset.page=file;document.title=doc.title;
+  document.querySelectorAll('.topbar nav a').forEach(link=>{if(new URL(link.href).pathname===target.pathname)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');});
+  if(push)history.pushState({chapter:file},'',target.href);
+  mountPage();fitBook();pageTurning=false;
+}
 document.addEventListener('click',async event=>{
   const link=event.target.closest('a[data-book-link]');
   if(!link || event.button!==0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || link.target==='_blank')return;
   const target=new URL(link.href,location.href), file=target.pathname.split('/').pop();
   if(target.origin!==location.origin || !bookPages.includes(file))return;
   if(file===document.body.dataset.page){event.preventDefault();return;}
-  if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;
-  event.preventDefault();if(pageTurning)return;pageTurning=true;
+  event.preventDefault();await turnChapter(target,true);
+});
+async function turnChapter(target,pushHistory){
+  if(pageTurning)return;pageTurning=true;
+  const file=target.pathname.split('/').pop();
   const direction=bookPages.indexOf(file)<bookPages.indexOf(document.body.dataset.page)?'back':'next';
   const spread=$('book-spread');
   spread.setAttribute('aria-busy','true');
   try{
-    const response=await fetch(target.href,{signal:AbortSignal.timeout(8000)});
-    if(!response.ok)throw new Error('Page unavailable');
-    const nextDocument=new DOMParser().parseFromString(await response.text(),'text/html');
+    const nextDocument=new DOMParser().parseFromString(await getChapter(target),'text/html');
     preparePreview(nextDocument);
+    if(matchMedia('(prefers-reduced-motion: reduce)').matches){commitChapter(nextDocument,target,pushHistory);return;}
     const moving=direction==='back'?'.left-leaf':'.right-leaf';
     const landing=direction==='back'?'.right-leaf':'.left-leaf';
     const underneath=nextDocument.querySelector(moving);
@@ -222,14 +246,18 @@ document.addEventListener('click',async event=>{
     spread.classList.add(direction==='back'?'book-turn-back':'book-turn-next');
     releaseButterflies(30);
     let finished=false;
-    const finish=()=>{if(finished)return;finished=true;location.assign(target.href);};
+    const finish=()=>{if(finished)return;finished=true;commitChapter(nextDocument,target,pushHistory);};
     animatePaperFold(sheet,direction==='back',finish);
-  }catch{location.assign(target.href);}
-});
+  }catch{pageTurning=false;spread.inert=false;spread.removeAttribute('aria-busy');toast('这一页暂时没有加载好，请再试一次。');}
+}
+window.addEventListener('popstate',()=>{const target=new URL(location.href);if(bookPages.includes(target.pathname.split('/').pop()))turnChapter(target,false);});
+const prefetch=()=>{for(const file of bookPages)if(file!==document.body.dataset.page)getChapter(new URL(file,location.href)).catch(()=>{});};
+if('requestIdleCallback' in window)requestIdleCallback(prefetch,{timeout:2000});else setTimeout(prefetch,1000);
 function animatePaperFold(sheet,backward,finish){
   const front=sheet.querySelector('.face-front'),back=sheet.querySelector('.face-back');
   const shade=document.createElement('div');shade.className='fold-shadow';const band=document.createElement('div');band.className='fold-shadow-band';shade.append(band);sheet.append(shade);
   const width=sheet.clientWidth,height=sheet.clientHeight;let start=null;
+  back.style.filter='drop-shadow(0 4px 7px rgba(85,61,39,.16))';
   function frame(now){
     if(start===null)start=now;const linear=Math.min(1,(now-start)/1450),t=linear*linear*(3-2*linear);
     const geometry=foldGeometry(width,height,t,backward);
@@ -237,7 +265,6 @@ function animatePaperFold(sheet,backward,finish){
     front.style.clipPath=polygonCss(geometry.remaining);back.style.clipPath=polygonCss(geometry.folded);
     back.style.transform=`matrix(${geometry.matrix.join(',')})`;
     shade.style.clipPath=polygonCss(geometry.remaining);
-    back.style.filter=`drop-shadow(${backward?-5:5}px 5px ${6+18*Math.sin(Math.PI*t)}px rgba(85,61,39,${.08+.22*Math.sin(Math.PI*t)}))`;
     if(geometry.crease.length>=2){const [a,b]=geometry.crease,length=Math.hypot(b.x-a.x,b.y-a.y),angle=Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI;band.style.width=`${length}px`;band.style.left=`${a.x}px`;band.style.top=`${a.y}px`;band.style.transform=`rotate(${angle}deg) translateY(-50%)`;band.style.opacity=String(Math.sin(Math.PI*t)*.8);}
     if(linear<1)requestAnimationFrame(frame);else finish();
   }
