@@ -1,9 +1,6 @@
 import { CARD_COUNT, LOVE_START, dateValue, todayValue, nextAnniversary, drawCard } from './core.js?v=5';
 try{if(sessionStorage.getItem('chenchen-book-view')==='flat')document.body.dataset.bookView='flat';}catch{}
-try {
-  const arrival=sessionStorage.getItem('chenchen-book-turn');
-  if(arrival){document.documentElement.classList.add(arrival==='back'?'book-enter-back':'book-enter-next');sessionStorage.removeItem('chenchen-book-turn');setTimeout(()=>document.documentElement.classList.remove('book-enter-back','book-enter-next'),750);}
-}catch{}
+try{sessionStorage.removeItem('chenchen-book-turn');}catch{}
 let gameRules = null;
 try {
   const response=await fetch('./game-config.json?v=4',{cache:'no-store'});
@@ -175,7 +172,7 @@ if ($('calendar-grid')) {
 }
 const bookPages=['index.html','anniversaries.html','wishes.html','cupid.html'];
 let pageTurning=false;
-document.addEventListener('click',event=>{
+document.addEventListener('click',async event=>{
   const link=event.target.closest('a[data-book-link]');
   if(!link || event.button!==0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || link.target==='_blank')return;
   const target=new URL(link.href,location.href), file=target.pathname.split('/').pop();
@@ -184,13 +181,65 @@ document.addEventListener('click',event=>{
   if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;
   event.preventDefault();if(pageTurning)return;pageTurning=true;
   const direction=bookPages.indexOf(file)<bookPages.indexOf(document.body.dataset.page)?'back':'next';
-  try {sessionStorage.setItem('chenchen-book-turn',direction);}catch{}
   const spread=$('book-spread');
-  spread.classList.add(direction==='back'?'book-turn-back':'book-turn-next');
   spread.setAttribute('aria-busy','true');
-  releaseButterflies(30);
-  setTimeout(()=>location.assign(target.href),580);
+  try{
+    const response=await fetch(target.href,{signal:AbortSignal.timeout(8000)});
+    if(!response.ok)throw new Error('Page unavailable');
+    const nextDocument=new DOMParser().parseFromString(await response.text(),'text/html');
+    preparePreview(nextDocument);
+    const moving=direction==='back'?'.left-leaf':'.right-leaf';
+    const landing=direction==='back'?'.right-leaf':'.left-leaf';
+    const underneath=nextDocument.querySelector(moving);
+    const back=nextDocument.querySelector(landing);
+    if(!underneath||!back)throw new Error('Page unavailable');
+    const sheet=document.createElement('div');sheet.className=`physical-sheet sheet-${direction}`;sheet.setAttribute('aria-hidden','true');sheet.inert=true;
+    for(const [name,source] of [['front',spread.querySelector(moving)],['back',back]]){
+      const face=document.createElement('div');face.className=`turn-face face-${name}`;face.dataset.page=name==='front'?document.body.dataset.page:file;
+      const copy=source.cloneNode(true);copy.removeAttribute('id');copy.querySelectorAll('[id]').forEach(node=>node.removeAttribute('id'));
+      face.append(copy);sheet.append(face);
+    }
+    spread.querySelector(moving).innerHTML=underneath.innerHTML;
+    spread.inert=true;
+    spread.append(sheet);
+    spread.classList.add(direction==='back'?'book-turn-back':'book-turn-next');
+    releaseButterflies(30);
+    requestAnimationFrame(()=>requestAnimationFrame(()=>sheet.classList.add('sheet-moving')));
+    let finished=false;
+    const finish=()=>{if(finished)return;finished=true;location.assign(target.href);};
+    sheet.addEventListener('transitionend',event=>{if(event.target===sheet&&event.propertyName==='transform')finish();});
+    setTimeout(finish,1550);
+  }catch{location.assign(target.href);}
 });
+function preparePreview(doc){
+  const set=(id,text)=>{const node=doc.getElementById(id);if(node)node.textContent=text;};
+  const today=todayValue(),start=dateValue(LOVE_START),days=Math.round((today-start)/86400000);
+  set('home-days',days);set('love-days',`${days} 天`);set('love-since',`从 ${formatDate(start)} 开始，每一天都算数。`);
+  const target=dateValue(state.custom)??nextAnniversary(start,today,state.interval),remaining=Math.round((target-today)/86400000);
+  set('countdown',`${Math.abs(remaining)} 天`);set('anniversary-date',formatDate(target));
+  const calendar=doc.getElementById('calendar-grid');
+  if(calendar){
+    const date=new Date(today),year=date.getUTCFullYear(),month=date.getUTCMonth(),first=(new Date(Date.UTC(year,month,1)).getUTCDay()+6)%7,count=new Date(Date.UTC(year,month+1,0)).getUTCDate();
+    set('calendar-year',year);set('calendar-month',`${month+1} 月`);
+    for(let i=0;i<42;i++){const time=Date.UTC(year,month,i-first+1),day=new Date(time).getUTCDate(),cell=doc.createElement('span');cell.className='calendar-day';cell.textContent=day;if(i<first||i>=first+count)cell.classList.add('outside');else if(day===15&&time>=start)cell.classList.add('love-day');if(time===today)cell.classList.add('today');calendar.append(cell);}
+  }
+  set('chance-count',`${gameRules?.limit-state.game.draws.length} / ${gameRules?.limit}`);
+  const grid=doc.getElementById('card-grid');
+  if(grid&&gameRules)for(let index=0;index<CARD_COUNT;index++){
+    const draw=state.game.draws.find(d=>d.index===index),card=doc.createElement('button');card.className=`draw-card${draw?' revealed':''}`;
+    const icon=doc.createElement('span');icon.className='card-icon';icon.textContent=draw?'✦':'♡';
+    const title=doc.createElement('span');title.className='card-title';title.textContent=draw?.reward||'一份心动';
+    const serial=doc.createElement('span');serial.className='card-serial';serial.textContent=`CUPID / ${String(index+1).padStart(2,'0')}`;
+    card.append(icon,title,serial);grid.append(card);
+  }
+  const list=doc.getElementById('wish-list');
+  if(list)for(const wish of state.wishes){const item=doc.createElement('li');item.className='wish-item';item.textContent=`${wish.done?'✓':'♡'} ${wish.text}`;list.append(item);}
+  if(list&&!state.wishes.length){const item=doc.createElement('li');item.className='empty-wishes';item.textContent='第一份愿望，留给你们一起写。♡';list.append(item);}
+  set('wish-progress',`${state.wishes.filter(w=>w.done).length} / ${state.wishes.length} 已完成`);
+  const history=doc.getElementById('reward-history');
+  if(history)for(const draw of state.game.draws){const item=doc.createElement('span');item.textContent=draw.reward;history.append(item);}
+  const pool=doc.getElementById('reward-pool-preview');if(pool&&gameRules)for(const reward of gameRules.rewards){const item=doc.createElement('li');item.textContent=reward;pool.append(item);}
+}
 function releaseButterflies(count=26){
   const sky=$('butterfly-sky');if(!sky||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
   const rect=document.querySelector('.central-spine').getBoundingClientRect();
@@ -207,7 +256,7 @@ function releaseButterflies(count=26){
   }
 }
 const angleButton=$('book-angle');
-function updateAngleButton(){if(!angleButton)return;const flat=document.body.dataset.bookView==='flat';angleButton.textContent=flat?'45° 立体视角 ↗':'平视阅读 ↗';angleButton.setAttribute('aria-pressed',String(flat));}
+function updateAngleButton(){if(!angleButton)return;const flat=document.body.dataset.bookView==='flat';angleButton.textContent=flat?'双页立体视角 ↗':'平视阅读 ↗';angleButton.setAttribute('aria-pressed',String(flat));}
 angleButton?.addEventListener('click',()=>{const flat=document.body.dataset.bookView!=='flat';document.body.dataset.bookView=flat?'flat':'tilted';try{sessionStorage.setItem('chenchen-book-view',flat?'flat':'tilted');}catch{}updateAngleButton();});
 updateAngleButton();
 setTimeout(()=>releaseButterflies(),180);
