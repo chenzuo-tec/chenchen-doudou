@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {LOVE_START, todayValue, dateValue, addMonths, nextAnniversary, drawCard} from '../core.js';
+import {CARD_COUNT, LOVE_START, todayValue, dateValue, addMonths, nextAnniversary, drawCard} from '../core.js';
+test('4 by 4 board supports the last card and rejects an index outside the board',()=>{
+  assert.equal(CARD_COUNT,16);
+  const game={limit:3,draws:[]};
+  assert.equal(drawCard(game,15,['a'],()=>0).reward,'a');
+  assert.equal(drawCard(game,16,['a']),null);
+  assert.equal(drawCard(game,15,['a']),null);
+});
 test('fixed love date and calendar use Shanghai day boundary', () => {
   assert.equal(LOVE_START,'2026-05-15');
   assert.equal(todayValue(new Date('2026-10-14T16:01:00Z')), dateValue('2026-10-15'));

@@ -1,4 +1,5 @@
 export const LOVE_START = '2026-05-15';
+export const CARD_COUNT = 16;
 export function dateValue(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return null;
   const [y, m, d] = value.split('-').map(Number);
@@ -29,7 +30,7 @@ export function nextAnniversary(start, today, interval = 1) {
   return target;
 }
 export function drawCard(game, index, rewards, random = Math.random) {
-  if (!Number.isInteger(index) || index < 0 || index > 8 || game.draws.length >= game.limit || game.draws.some(d => d.index === index) || !rewards.length) return null;
+  if (!Number.isInteger(index) || index < 0 || index >= CARD_COUNT || game.draws.length >= game.limit || game.draws.some(d => d.index === index) || !rewards.length) return null;
   const reward = rewards[Math.min(rewards.length - 1, Math.floor(random() * rewards.length))];
   const draw = { index, reward };
   game.draws.push(draw);

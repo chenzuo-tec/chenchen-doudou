@@ -1,4 +1,4 @@
-import { LOVE_START, dateValue, todayValue, nextAnniversary, drawCard } from './core.js?v=4';
+import { CARD_COUNT, LOVE_START, dateValue, todayValue, nextAnniversary, drawCard } from './core.js?v=5';
 try{if(sessionStorage.getItem('chenchen-book-view')==='flat')document.body.dataset.bookView='flat';}catch{}
 try {
   const arrival=sessionStorage.getItem('chenchen-book-turn');
@@ -9,7 +9,7 @@ try {
   const response=await fetch('./game-config.json?v=4',{cache:'no-store'});
   if(!response.ok)throw new Error('Configuration unavailable');
   const rules=await response.json();
-  if(!Number.isInteger(rules.chances)||rules.chances<1||rules.chances>9||!Array.isArray(rules.rewards)||!rules.rewards.length||rules.rewards.length>50||rules.rewards.some(r=>typeof r!=='string'||!r.trim()||r.length>120))throw new Error('Invalid configuration');
+  if(!Number.isInteger(rules.chances)||rules.chances<1||rules.chances>CARD_COUNT||!Array.isArray(rules.rewards)||!rules.rewards.length||rules.rewards.length>50||rules.rewards.some(r=>typeof r!=='string'||!r.trim()||r.length>120))throw new Error('Invalid configuration');
   gameRules={limit:rules.chances,rewards:rules.rewards.map(r=>r.trim()),version:JSON.stringify([rules.revision,rules.chances,rules.rewards])};
 }catch{}
 const $ = id => document.getElementById(id);
@@ -26,7 +26,7 @@ function normalize(data) {
   const game = data.game;
   if (gameRules && game && game.version === gameRules.version) {
     const seen = new Set();
-    if (Array.isArray(game.draws)) s.game.draws = game.draws.filter(d => { if (!d || !Number.isInteger(d.index) || d.index < 0 || d.index > 8 || !gameRules.rewards.includes(d.reward) || seen.has(d.index)) return false; seen.add(d.index); return true; }).slice(0,gameRules.limit).map(d => ({index:d.index,reward:d.reward}));
+    if (Array.isArray(game.draws)) s.game.draws = game.draws.filter(d => { if (!d || !Number.isInteger(d.index) || d.index < 0 || d.index >= CARD_COUNT || !gameRules.rewards.includes(d.reward) || seen.has(d.index)) return false; seen.add(d.index); return true; }).slice(0,gameRules.limit).map(d => ({index:d.index,reward:d.reward}));
   }
   return s;
 }
@@ -82,13 +82,13 @@ function renderGame() {
   const {game} = state; const remaining = game.limit-game.draws.length;
   setNumber($('chance-count'), remaining, `/ ${game.limit}`);
   $('card-grid').replaceChildren();
-  for (let index = 0; index < 9; index++) {
+  for (let index = 0; index < CARD_COUNT; index++) {
     const draw = game.draws.find(d => d.index === index);
     const card = document.createElement('button'); card.type = 'button'; card.className = `draw-card${draw ? ' revealed' : ''}`; card.disabled = !!draw || remaining <= 0;
     card.setAttribute('aria-label', draw ? `第 ${index+1} 张卡，奖励：${draw.reward}` : `抽取第 ${index+1} 张卡`);
     const icon = document.createElement('span'); icon.className = 'card-icon'; icon.textContent = draw ? '✦' : '♡';
     const title = document.createElement('span'); title.className = 'card-title'; title.textContent = draw ? draw.reward : '一份心动';
-    const serial = document.createElement('span'); serial.className = 'card-serial'; serial.textContent = draw ? 'YOUR LITTLE GIFT' : `CUPID / 0${index+1}`;
+    const serial = document.createElement('span'); serial.className = 'card-serial'; serial.textContent = draw ? 'YOUR LITTLE GIFT' : `CUPID / ${String(index+1).padStart(2,'0')}`;
     card.append(icon,title,serial);
     card.addEventListener('click', event => {
       state.game.limit=gameRules.limit;
