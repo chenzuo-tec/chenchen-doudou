@@ -1,1 +1,1 @@
-{"name":"chenchen-doudou-love","private":true,"type":"module","scripts":{"test":"node --test tests/core.test.js","check":"node --check app.js && node --check core.js"}}
+{"name":"chenchen-doudou-love","private":true,"type":"module","scripts":{"test":"node --test tests/core.test.js tests/fold.test.js","check":"node --check app.js && node --check core.js && node --check fold.js"}}

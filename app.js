@@ -1,4 +1,5 @@
 import { CARD_COUNT, LOVE_START, dateValue, todayValue, nextAnniversary, drawCard } from './core.js?v=5';
+import {foldGeometry,polygonCss} from './fold.js?v=8';
 try{if(sessionStorage.getItem('chenchen-book-view')==='flat')document.body.dataset.bookView='flat';}catch{}
 try{sessionStorage.removeItem('chenchen-book-turn');}catch{}
 let gameRules = null;
@@ -208,11 +209,11 @@ document.addEventListener('click',async event=>{
     const underneath=nextDocument.querySelector(moving);
     const back=nextDocument.querySelector(landing);
     if(!underneath||!back)throw new Error('Page unavailable');
-    const sheet=document.createElement('div');sheet.className=`physical-sheet sheet-${direction}`;sheet.setAttribute('aria-hidden','true');sheet.inert=true;
+    const sheet=document.createElement('div');sheet.className=`physical-sheet fold-sheet sheet-${direction}`;sheet.setAttribute('aria-hidden','true');sheet.inert=true;
     for(const [name,source] of [['front',spread.querySelector(moving)],['back',back]]){
       const face=document.createElement('div');face.className=`turn-face face-${name}`;face.dataset.page=name==='front'?document.body.dataset.page:file;
       const copy=source.cloneNode(true);copy.removeAttribute('id');copy.querySelectorAll('[id]').forEach(node=>node.removeAttribute('id'));
-      face.append(copy);sheet.append(face);
+      const content=document.createElement('div');content.className='fold-face-content';content.append(copy);face.append(content);sheet.append(face);
     }
     spread.querySelector(moving).innerHTML=underneath.innerHTML;
     spread.inert=true;
@@ -220,13 +221,28 @@ document.addEventListener('click',async event=>{
     fitBook();
     spread.classList.add(direction==='back'?'book-turn-back':'book-turn-next');
     releaseButterflies(30);
-    requestAnimationFrame(()=>requestAnimationFrame(()=>sheet.classList.add('sheet-moving')));
     let finished=false;
     const finish=()=>{if(finished)return;finished=true;location.assign(target.href);};
-    sheet.addEventListener('transitionend',event=>{if(event.target===sheet&&event.propertyName==='transform')finish();});
-    setTimeout(finish,1550);
+    animatePaperFold(sheet,direction==='back',finish);
   }catch{location.assign(target.href);}
 });
+function animatePaperFold(sheet,backward,finish){
+  const front=sheet.querySelector('.face-front'),back=sheet.querySelector('.face-back');
+  const shade=document.createElement('div');shade.className='fold-shadow';const band=document.createElement('div');band.className='fold-shadow-band';shade.append(band);sheet.append(shade);
+  const width=sheet.clientWidth,height=sheet.clientHeight;let start=null;
+  function frame(now){
+    if(start===null)start=now;const linear=Math.min(1,(now-start)/1450),t=linear*linear*(3-2*linear);
+    const geometry=foldGeometry(width,height,t,backward);
+    sheet.dataset.progress=t.toFixed(4);
+    front.style.clipPath=polygonCss(geometry.remaining);back.style.clipPath=polygonCss(geometry.folded);
+    back.style.transform=`matrix(${geometry.matrix.join(',')})`;
+    shade.style.clipPath=polygonCss(geometry.remaining);
+    back.style.filter=`drop-shadow(${backward?-5:5}px 5px ${6+18*Math.sin(Math.PI*t)}px rgba(85,61,39,${.08+.22*Math.sin(Math.PI*t)}))`;
+    if(geometry.crease.length>=2){const [a,b]=geometry.crease,length=Math.hypot(b.x-a.x,b.y-a.y),angle=Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI;band.style.width=`${length}px`;band.style.left=`${a.x}px`;band.style.top=`${a.y}px`;band.style.transform=`rotate(${angle}deg) translateY(-50%)`;band.style.opacity=String(Math.sin(Math.PI*t)*.8);}
+    if(linear<1)requestAnimationFrame(frame);else finish();
+  }
+  requestAnimationFrame(frame);
+}
 function preparePreview(doc){
   const set=(id,text)=>{const node=doc.getElementById(id);if(node)node.textContent=text;};
   const today=todayValue(),start=dateValue(LOVE_START),days=Math.round((today-start)/86400000);
@@ -272,7 +288,7 @@ function releaseButterflies(count=26){
   }
 }
 const angleButton=$('book-angle');
-function updateAngleButton(){if(!angleButton)return;const flat=document.body.dataset.bookView==='flat';angleButton.textContent=flat?'双页立体视角 ↗':'平视阅读 ↗';angleButton.setAttribute('aria-pressed',String(flat));}
+function updateAngleButton(){if(!angleButton)return;angleButton.textContent='平铺双页';}
 angleButton?.addEventListener('click',()=>{const flat=document.body.dataset.bookView!=='flat';document.body.dataset.bookView=flat?'flat':'tilted';try{sessionStorage.setItem('chenchen-book-view',flat?'flat':'tilted');}catch{}updateAngleButton();});
 updateAngleButton();
 setTimeout(()=>releaseButterflies(),180);
@@ -285,14 +301,14 @@ document.addEventListener('keydown',event=>{
 function fitBook(){
   const desk=document.querySelector('.book-desk'),stage=document.querySelector('.book-stage');
   if(!desk||!stage)return;
-  if(innerWidth>760){const scale=Math.min(1.45,(desk.clientWidth-34)/1200,(desk.clientHeight-34)/690);stage.style.setProperty('--viewport-scale',String(Math.max(.15,scale)));}
+  if(innerWidth>760){const width=Math.min(1600,desk.clientWidth-36,(desk.clientHeight-28)*1.95),height=width/1.95;stage.style.setProperty('--book-width',`${width}px`);stage.style.setProperty('--book-height',`${height}px`);stage.style.left=`${(desk.clientWidth-width)/2}px`;stage.style.top=`${(desk.clientHeight-height)/2}px`;}
   document.querySelectorAll('.page-content').forEach(content=>{
     let wrapper=content.querySelector(':scope > .page-fit-wrapper');
     if(!wrapper){wrapper=document.createElement('div');wrapper.className='page-fit-wrapper';while(content.firstChild)wrapper.append(content.firstChild);content.append(wrapper);}
-    wrapper.style.transform='none';wrapper.style.width='100%';
+    wrapper.style.transform='none';wrapper.style.zoom='1';wrapper.style.width='100%';
     const natural=wrapper.scrollHeight,available=content.clientHeight;
     const scale=natural?Math.min(1,(available-2)/natural):1;
-    wrapper.style.transform=`scale(${Math.max(.1,scale)})`;
+    wrapper.style.zoom=String(Math.max(.1,scale));wrapper.style.width='100%';
   });
 }
 window.addEventListener('resize',()=>requestAnimationFrame(fitBook));
