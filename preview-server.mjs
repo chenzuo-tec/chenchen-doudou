@@ -2,8 +2,8 @@ import http from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {resolve,extname} from 'node:path';
 const root = process.cwd();
-const types = {'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8'};
-const allowed = new Set(['/index.html','/anniversaries.html','/wishes.html','/cupid.html','/style.css','/app.js','/core.js']);
+const types = {'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8'};
+const allowed = new Set(['/index.html','/anniversaries.html','/wishes.html','/cupid.html','/style.css','/app.js','/core.js','/game-config.json']);
 http.createServer(async(req,res) => {
   const path = new URL(req.url,'http://localhost').pathname;
   const file = path === '/' ? '/index.html' : path;

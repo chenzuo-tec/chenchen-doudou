@@ -1,8 +1,20 @@
-import { DEFAULT_REWARDS, LOVE_START, dateValue, todayValue, dateString, nextAnniversary, drawCard } from './core.js?v=2';
+import { LOVE_START, dateValue, todayValue, nextAnniversary, drawCard } from './core.js?v=3';
+try {
+  const arrival=sessionStorage.getItem('chenchen-book-turn');
+  if(arrival){document.documentElement.classList.add(arrival==='back'?'book-enter-back':'book-enter-next');sessionStorage.removeItem('chenchen-book-turn');setTimeout(()=>document.documentElement.classList.remove('book-enter-back','book-enter-next'),750);}
+}catch{}
+let gameRules = null;
+try {
+  const response=await fetch('./game-config.json?v=3',{cache:'no-store'});
+  if(!response.ok)throw new Error('Configuration unavailable');
+  const rules=await response.json();
+  if(!Number.isInteger(rules.chances)||rules.chances<1||rules.chances>9||!Array.isArray(rules.rewards)||!rules.rewards.length||rules.rewards.length>50||rules.rewards.some(r=>typeof r!=='string'||!r.trim()||r.length>120))throw new Error('Invalid configuration');
+  gameRules={limit:rules.chances,rewards:rules.rewards.map(r=>r.trim()),version:JSON.stringify([rules.revision,rules.chances,rules.rewards])};
+}catch{}
 const $ = id => document.getElementById(id);
 const KEY = 'chenchen-doudou.v1';
 const uid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-function freshState() { return { start: LOVE_START, interval: 1, custom: '', wishes: [], rewards: [...DEFAULT_REWARDS], game: { limit: 3, draws: [] } }; }
+function freshState() { return { start: LOVE_START, interval: 1, custom: '', wishes: [], game: { limit: gameRules?.limit || 0, version: gameRules?.version || '', draws: [] } }; }
 function normalize(data) {
   const s = freshState();
   if (!data || typeof data !== 'object') return s;
@@ -10,12 +22,10 @@ function normalize(data) {
   s.custom = dateValue(data.custom) !== null ? data.custom : '';
   s.interval = [1,6,12].includes(data.interval) ? data.interval : 1;
   s.wishes = Array.isArray(data.wishes) ? data.wishes.filter(w => w && typeof w.text === 'string' && w.text.trim()).slice(0,200).map(w => ({id: uid(), text: w.text.trim().slice(0,120), done: w.done === true})) : [];
-  if (Array.isArray(data.rewards)) { const pool = data.rewards.filter(r => typeof r === 'string' && r.trim()).slice(0,50).map(r => r.trim().slice(0,120)); if (pool.length) s.rewards = pool; }
   const game = data.game;
-  if (game && Number.isInteger(game.limit) && game.limit >= 1 && game.limit <= 9) {
-    s.game.limit = game.limit;
+  if (gameRules && game && game.version === gameRules.version) {
     const seen = new Set();
-    if (Array.isArray(game.draws)) s.game.draws = game.draws.filter(d => { if (!d || !Number.isInteger(d.index) || d.index < 0 || d.index > 8 || typeof d.reward !== 'string' || seen.has(d.index)) return false; seen.add(d.index); return true; }).slice(0,game.limit).map(d => ({index:d.index,reward:d.reward.slice(0,120)}));
+    if (Array.isArray(game.draws)) s.game.draws = game.draws.filter(d => { if (!d || !Number.isInteger(d.index) || d.index < 0 || d.index > 8 || !gameRules.rewards.includes(d.reward) || seen.has(d.index)) return false; seen.add(d.index); return true; }).slice(0,gameRules.limit).map(d => ({index:d.index,reward:d.reward}));
   }
   return s;
 }
@@ -67,6 +77,7 @@ function renderWishes() {
 }
 function renderGame() {
   if (!$('card-grid')) return;
+  if(!gameRules){$('game-status').textContent='惊喜暂时没准备好，请稍后刷新再来。';$('restart-game').disabled=true;return;}
   const {game} = state; const remaining = game.limit-game.draws.length;
   setNumber($('chance-count'), remaining, `/ ${game.limit}`);
   $('card-grid').replaceChildren();
@@ -79,7 +90,8 @@ function renderGame() {
     const serial = document.createElement('span'); serial.className = 'card-serial'; serial.textContent = draw ? 'YOUR LITTLE GIFT' : `CUPID / 0${index+1}`;
     card.append(icon,title,serial);
     card.addEventListener('click', event => {
-      const result = drawCard(state.game,index,state.rewards);
+      state.game.limit=gameRules.limit;
+      const result = drawCard(state.game,index,gameRules.rewards);
       if (!result) return;
       save(); renderGame(); $('reward-result').textContent = result.reward; $('reward-dialog').showModal();
       if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -115,12 +127,6 @@ $('import-file')?.addEventListener('change', async event => {
     state.wishes = normalize(data).wishes; save(); renderWishes(); toast('愿望清单已导入。');
   } catch { toast('导入失败，请选择本网页导出的有效清单文件（最多 1 MB）。'); }
   finally { event.target.value = ''; }
-});
-$('open-game-settings')?.addEventListener('click', () => { $('max-chances').value = state.game.limit; $('reward-pool').value = state.rewards.join('\n'); $('game-settings-dialog').showModal(); });
-$('game-settings-form')?.addEventListener('submit', event => {
-  event.preventDefault(); const limit = Number($('max-chances').value); const rewards = $('reward-pool').value.split('\n').map(s => s.trim()).filter(Boolean);
-  if (!Number.isInteger(limit) || limit < 1 || limit > 9 || !rewards.length || rewards.length > 50 || rewards.some(r => r.length > 120)) { toast('请设置 1～9 次机会、1～50 个奖励，每个奖励不超过 120 字。'); return; }
-  state.rewards = rewards; state.game = {limit,draws:[]}; save(); renderGame(); $('game-settings-dialog').close(); toast('新的惊喜已准备好。');
 });
 $('restart-game')?.addEventListener('click', () => { if (state.game.draws.length && !confirm('开始新一轮？本轮奖励记录将清空。')) return; state.game.draws = []; save(); renderGame(); });
 document.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => button.closest('dialog').close()));
@@ -164,3 +170,26 @@ if ($('calendar-grid')) {
   $('calendar-today').addEventListener('click',()=>turn(0,true));
   renderCalendar();
 }
+const bookPages=['index.html','anniversaries.html','wishes.html','cupid.html'];
+let pageTurning=false;
+document.addEventListener('click',event=>{
+  const link=event.target.closest('a[data-book-link]');
+  if(!link || event.button!==0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || link.target==='_blank')return;
+  const target=new URL(link.href,location.href), file=target.pathname.split('/').pop();
+  if(target.origin!==location.origin || !bookPages.includes(file))return;
+  if(file===document.body.dataset.page){event.preventDefault();return;}
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+  event.preventDefault();if(pageTurning)return;pageTurning=true;
+  const direction=bookPages.indexOf(file)<bookPages.indexOf(document.body.dataset.page)?'back':'next';
+  try {sessionStorage.setItem('chenchen-book-turn',direction);}catch{}
+  const spread=$('book-spread');
+  spread.classList.add(direction==='back'?'book-turn-back':'book-turn-next');
+  spread.setAttribute('aria-busy','true');
+  setTimeout(()=>location.assign(target.href),420);
+});
+document.addEventListener('keydown',event=>{
+  if(event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || document.querySelector('dialog[open]') || event.target.matches('input,textarea,select,[contenteditable=true]'))return;
+  const index=bookPages.indexOf(document.body.dataset.page);
+  if(event.key==='ArrowRight'&&index<bookPages.length-1){event.preventDefault();document.querySelector(`.book-pagination a[href="./${bookPages[index+1]}"]`)?.click();}
+  if(event.key==='ArrowLeft'&&index>0){event.preventDefault();document.querySelector(`.book-pagination a[href="./${bookPages[index-1]}"]`)?.click();}
+});

@@ -1,5 +1,4 @@
-export const DEFAULT_REWARDS = ['一个大大的拥抱（示例）', '一起散步半小时（示例）', '对方夸夸你一分钟（示例）', '一起选一部电影（示例）', '下一次约会由你决定（示例）', '收到一封手写小情书（示例）'];
-export const LOVE_START = '2026-03-15';
+export const LOVE_START = '2026-05-15';
 export function dateValue(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return null;
   const [y, m, d] = value.split('-').map(Number);
