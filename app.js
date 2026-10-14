@@ -29,6 +29,15 @@ function normalize(data) {
 }
 let state;
 try { state = normalize(JSON.parse(localStorage.getItem(KEY))); } catch { state = freshState(); }
+let wishPage=0;
+const wishPageSize=3;
+const listPages={history:0,pool:0};
+function paginateList(node,items,key,makeItem){
+  const size=3;listPages[key]=Math.min(listPages[key],Math.max(0,Math.ceil(items.length/size)-1));node.replaceChildren();
+  items.slice(listPages[key]*size,(listPages[key]+1)*size).forEach((item,i)=>node.append(makeItem(item,listPages[key]*size+i)));
+  let pager=document.getElementById(`${key}-pager`);if(!pager){pager=document.createElement('div');pager.id=`${key}-pager`;pager.className='inner-pager';node.after(pager);}pager.replaceChildren();
+  if(items.length>size)for(const [label,delta] of [['←',-1],[`${listPages[key]+1} / ${Math.ceil(items.length/size)}`,0],['→',1]]){const button=document.createElement(delta?'button':'span');button.textContent=label;if(delta){button.type='button';button.disabled=listPages[key]+delta<0||(listPages[key]+delta)*size>=items.length;button.setAttribute('aria-label',`${delta<0?'上一页':'下一页'}${key==='pool'?'奖励池':'奖励记录'}`);button.addEventListener('click',()=>{listPages[key]+=delta;renderGame();});}pager.append(button);}
+}
 let toastTimer;
 function toast(message) { $('toast').textContent = message; $('toast').classList.add('visible'); clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').classList.remove('visible'), 3500); }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { toast('浏览器无法保存数据；关闭后可能丢失，请导出清单备份。'); } }
@@ -61,7 +70,8 @@ function renderWishes() {
   if (!$('wish-list')) return;
   $('wish-list').replaceChildren();
   if (!state.wishes.length) { const empty = document.createElement('li'); empty.className = 'empty-wishes'; empty.textContent = '第一份愿望，留给你们一起写。♡'; $('wish-list').append(empty); }
-  for (const wish of state.wishes) {
+  wishPage=Math.min(wishPage,Math.max(0,Math.ceil(state.wishes.length/wishPageSize)-1));
+  for (const wish of state.wishes.slice(wishPage*wishPageSize,(wishPage+1)*wishPageSize)) {
     const li = document.createElement('li'); li.className = `wish-item${wish.done ? ' done' : ''}`;
     const label = document.createElement('label');
     const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.checked = wish.done;
@@ -72,6 +82,10 @@ function renderWishes() {
     li.append(label,button); $('wish-list').append(li);
   }
   $('wish-progress').textContent = `${state.wishes.filter(w => w.done).length} / ${state.wishes.length} 已完成`;
+  let pager=$('wish-pager');if(!pager){pager=document.createElement('div');pager.id='wish-pager';pager.className='inner-pager';$('wish-list').after(pager);}
+  pager.replaceChildren();
+  if(state.wishes.length>wishPageSize){for(const [label,delta] of [['←',-1],[`${wishPage+1} / ${Math.ceil(state.wishes.length/wishPageSize)}`,0],['→',1]]){const node=document.createElement(delta?'button':'span');node.textContent=label;if(delta){node.type='button';node.disabled=wishPage+delta<0||(wishPage+delta)*wishPageSize>=state.wishes.length;node.setAttribute('aria-label',delta<0?'上一页愿望':'下一页愿望');node.addEventListener('click',()=>{wishPage+=delta;renderWishes();});}pager.append(node);}}
+  queueMicrotask(fitBook);
 }
 function renderGame() {
   if (!$('card-grid')) return;
@@ -91,6 +105,7 @@ function renderGame() {
       state.game.limit=gameRules.limit;
       const result = drawCard(state.game,index,gameRules.rewards);
       if (!result) return;
+      listPages.history=Math.floor((state.game.draws.length-1)/3);
       save(); renderGame(); $('reward-result').textContent = result.reward; $('reward-dialog').showModal();
       if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
         for (let n=0;n<12;n++) { const heart=document.createElement('span'); heart.className='heart-particle'; heart.textContent=n%3?'♥':'✦'; heart.style.setProperty('--dx',`${(Math.random()-.5)*320}px`); heart.style.setProperty('--dy',`${-80-Math.random()*170}px`); heart.style.left=`${event.clientX || innerWidth/2}px`; heart.style.top=`${event.clientY || innerHeight/2}px`; document.body.append(heart); setTimeout(()=>heart.remove(),1100); }
@@ -99,10 +114,10 @@ function renderGame() {
     $('card-grid').append(card);
   }
   $('game-status').textContent = remaining ? `选一张心动的卡片吧，还可以抽 ${remaining} 次。` : '本轮惊喜已全部送达。点击“重新开始”，开启下一轮。';
-  $('reward-history').replaceChildren();
-  for (const [i, draw] of game.draws.entries()) { const item = document.createElement('span'); item.textContent = `${i+1}. ${draw.reward}`; $('reward-history').append(item); }
-  if($('reward-pool-preview')){$('reward-pool-preview').replaceChildren();for(const reward of gameRules.rewards){const item=document.createElement('li');item.textContent=reward;$('reward-pool-preview').append(item);}}
+  paginateList($('reward-history'),game.draws,'history',(draw,i)=>{const item=document.createElement('button');item.className='reward-entry';item.type='button';item.textContent=`${i+1}. ${draw.reward}`;item.title=draw.reward;item.addEventListener('click',()=>{$('reward-result').textContent=draw.reward;$('reward-dialog').showModal();});return item;});
+  if($('reward-pool-preview'))paginateList($('reward-pool-preview'),gameRules.rewards,'pool',reward=>{const item=document.createElement('li');item.textContent=reward;item.title=reward;return item;});
   document.querySelector('.empty-gifts')?.classList.toggle('hidden',game.draws.length>0);
+  queueMicrotask(fitBook);
 }
 $('open-settings')?.addEventListener('click', () => { $('anniversary-type').value = state.interval; $('custom-date').value = state.custom; $('settings-dialog').showModal(); });
 $('settings-form')?.addEventListener('submit', event => {
@@ -111,7 +126,7 @@ $('settings-form')?.addEventListener('submit', event => {
   state.start = LOVE_START; state.interval = Number($('anniversary-type').value); state.custom = $('custom-date').value;
   save(); renderTime(); $('settings-dialog').close(); toast('我们的日期已保存。');
 });
-$('wish-form')?.addEventListener('submit', event => {event.preventDefault(); const text = $('wish-input').value.trim(); if (!text) return; if(state.wishes.length >= 200) {toast('清单最多保存 200 个愿望。'); return;} state.wishes.push({id:uid(),text,done:false}); save(); renderWishes(); $('wish-input').value = '';});
+$('wish-form')?.addEventListener('submit', event => {event.preventDefault(); const text = $('wish-input').value.trim(); if (!text) return; if(state.wishes.length >= 200) {toast('清单最多保存 200 个愿望。'); return;} state.wishes.push({id:uid(),text,done:false});wishPage=Math.floor((state.wishes.length-1)/wishPageSize); save(); renderWishes(); $('wish-input').value = '';});
 $('export-wishes')?.addEventListener('click', () => {
   const blob = new Blob([JSON.stringify({version:1,wishes:state.wishes},null,2)],{type:'application/json'});
   const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = '晨晨和豆豆的愿望清单.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url),1000);
@@ -202,6 +217,7 @@ document.addEventListener('click',async event=>{
     spread.querySelector(moving).innerHTML=underneath.innerHTML;
     spread.inert=true;
     spread.append(sheet);
+    fitBook();
     spread.classList.add(direction==='back'?'book-turn-back':'book-turn-next');
     releaseButterflies(30);
     requestAnimationFrame(()=>requestAnimationFrame(()=>sheet.classList.add('sheet-moving')));
@@ -266,3 +282,19 @@ document.addEventListener('keydown',event=>{
   if(event.key==='ArrowRight'&&index<bookPages.length-1){event.preventDefault();document.querySelector(`.book-pagination a[href="./${bookPages[index+1]}"]`)?.click();}
   if(event.key==='ArrowLeft'&&index>0){event.preventDefault();document.querySelector(`.book-pagination a[href="./${bookPages[index-1]}"]`)?.click();}
 });
+function fitBook(){
+  const desk=document.querySelector('.book-desk'),stage=document.querySelector('.book-stage');
+  if(!desk||!stage)return;
+  if(innerWidth>760){const scale=Math.min(1.45,(desk.clientWidth-34)/1200,(desk.clientHeight-34)/690);stage.style.setProperty('--viewport-scale',String(Math.max(.15,scale)));}
+  document.querySelectorAll('.page-content').forEach(content=>{
+    let wrapper=content.querySelector(':scope > .page-fit-wrapper');
+    if(!wrapper){wrapper=document.createElement('div');wrapper.className='page-fit-wrapper';while(content.firstChild)wrapper.append(content.firstChild);content.append(wrapper);}
+    wrapper.style.transform='none';wrapper.style.width='100%';
+    const natural=wrapper.scrollHeight,available=content.clientHeight;
+    const scale=natural?Math.min(1,(available-2)/natural):1;
+    wrapper.style.transform=`scale(${Math.max(.1,scale)})`;
+  });
+}
+window.addEventListener('resize',()=>requestAnimationFrame(fitBook));
+new ResizeObserver(()=>requestAnimationFrame(fitBook)).observe(document.querySelector('.book-desk'));
+requestAnimationFrame(fitBook);
